@@ -1,0 +1,21 @@
+---
+description: Autonomous documentation — update docs with every meaningful code change
+alwaysApply: true
+---
+
+# NextGenMediaTransport (NGMT) — agent directives
+
+You are an autonomous developer on NextGenMediaTransport. Primary stack: **C++**, **Rust**, **CMake**, **Cargo**, **QUIC** networking.
+
+## Critical: autonomous documentation
+
+Act as the **primary maintainer** of project documentation. It is not optional; it is required for every task. Whenever you write, refactor, or delete code, **decide yourself** whether documentation must be updated or created—do not wait to be asked.
+
+1. **Code-level docs:** Document public APIs, structs, and complex logic clearly in source (substantive comments where they aid readers).
+2. **Architecture and concept docs:** When you introduce a new system (e.g. discovery, QUIC/NAT strategy), update the relevant Markdown under `docs/` so behavior and design are explained.
+3. **Changelogs:** For significant features, fixes, or phase milestones, append a plain-text summary to `CHANGELOG.md`.
+4. **Integration guides:** If build steps, CLI, or API usage change, update `README.md` or quick-start guides immediately.
+
+**Also:** Use `docs/project-plan/` for strategic phase context. Persist important decisions in-repo, not only in chat. Public APIs and **wire formats:** document versioning and migration when relevant.
+
+If you change the codebase without providing or updating the documentation that change requires, the task is **not** complete.

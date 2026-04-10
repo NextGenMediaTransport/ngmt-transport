@@ -1,0 +1,4 @@
+# Aligned with NGMT C++ column limit (ngmt-core .clang-format).
+edition = "2021"
+max_width = 100
+use_small_heuristics = "Max"
