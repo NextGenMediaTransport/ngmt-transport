@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-04-10 — Phase 4: Rust API for Studio tools
+
+### Added
+
+- **`app_api`**: `TransportStatsSnapshot`, `snapshot_stats`, `send_datagram`, `recv_datagram_async`, `ConnectionIntent`, `JitterRing` for overlays and jitter visualization.
+- **`TransportRuntime`**: `local_addr`, `dial`, `accept_one` for QUIC client/server flows; **`connect_to` / `accept_incoming`** (async) for composing connect + I/O in a **single** `block_on` (nested `block_on` on the same Tokio runtime breaks Quinn); **`close_endpoint`** to unblock accept/connect from another thread before joining a worker (UI stop vs. `JoinHandle::join` deadlock).
+- Dependency: **`bytes`** for datagram payloads.
+
 ## 2026-04-10 — Phase 3: QUIC engine, FFI, BBR, WLAN tuning
 
 ### Added

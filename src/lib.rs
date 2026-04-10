@@ -5,9 +5,15 @@
 //! Media **objects** are carried as QUIC **datagrams** (unreliable) with optional stream-based
 //! control (future). Congestion control defaults to **BBR** via `quinn-proto` when available.
 
+pub mod app_api;
 pub mod engine;
 pub mod ffi;
 
+pub use app_api::{
+    recv_datagram_async, send_datagram, snapshot_stats, ConnectionIntent, JitterRing,
+    TransportStatsSnapshot,
+};
+pub use engine::session::TransportRuntime;
 pub use ffi::{
     ngmt_object_header_read_le, ngmt_object_header_write_le, ngmt_transport_abi_version,
     ngmt_transport_init, ngmt_transport_shutdown, NgmtByteSlice, NgmtObjectHeader,

@@ -11,7 +11,9 @@ use std::time::Duration;
 
 use quinn::congestion::BbrConfig;
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
-use quinn::{ClientConfig, Endpoint, EndpointConfig, IdleTimeout, ServerConfig, TransportConfig};
+use quinn::{
+    ClientConfig, Endpoint, EndpointConfig, IdleTimeout, ServerConfig, TransportConfig, VarInt,
+};
 use rcgen::CertifiedKey;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use tokio::runtime::Runtime;
@@ -123,7 +125,7 @@ impl TransportRuntime {
             .or_else(|_| UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, bind_port))))
             .map_err(|e| e.to_string())?;
 
-        let transport = build_transport_config(&config.wlan);
+        let transport = Arc::new(build_transport_config(&config.wlan));
         let is_client = !config.peer_host.is_null();
 
         let endpoint = {
@@ -138,7 +140,7 @@ impl TransportRuntime {
                 let mut cc = ClientConfig::new(Arc::new(
                     QuicClientConfig::try_from(client_crypto).map_err(|e| e.to_string())?,
                 ));
-                cc.transport_config(Arc::new(transport));
+                cc.transport_config(Arc::clone(&transport));
                 Endpoint::new(EndpointConfig::default(), None, socket, qrt)
                     .map_err(|e| e.to_string())
                     .map(|mut ep| {
@@ -156,18 +158,82 @@ impl TransportRuntime {
                     QuicServerConfig::try_from(server_crypto)
                         .map_err(|e| format!("{:?}", e))?,
                 ));
-                server_config.transport_config(Arc::new(transport));
-                Endpoint::new(
+                server_config.transport_config(Arc::clone(&transport));
+                let mut ep = Endpoint::new(
                     EndpointConfig::default(),
                     Some(server_config),
                     socket,
                     qrt,
                 )
-                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+                // Same endpoint can dial peers (WAN push / pull) while listening for incoming.
+                let client_crypto = rustls::ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(SkipServerVerification::new())
+                    .with_no_client_auth();
+                let mut cc = ClientConfig::new(Arc::new(
+                    QuicClientConfig::try_from(client_crypto).map_err(|e| e.to_string())?,
+                ));
+                cc.transport_config(transport);
+                ep.set_default_client_config(cc);
+                ep
             }
         };
 
         Ok(Self { runtime, endpoint })
+    }
+
+    /// Local UDP address (after bind), for mDNS TXT and manual connect hints.
+    pub fn local_addr(&self) -> Result<SocketAddr, String> {
+        self.endpoint.local_addr().map_err(|e| e.to_string())
+    }
+
+    /// Async: outbound QUIC connection (client role). Prefer composing inside **one** [`Runtime::block_on`]
+    /// — do not call [`Self::dial`] from inside another `block_on` on the same runtime (nested `block_on` breaks Quinn).
+    pub async fn connect_to(
+        &self,
+        host: &str,
+        port: u16,
+        server_name: &str,
+    ) -> Result<quinn::Connection, String> {
+        let addr = tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|e| e.to_string())?
+            .next()
+            .ok_or_else(|| "DNS lookup returned no addresses".to_string())?;
+        let connecting = self
+            .endpoint
+            .connect(addr, server_name)
+            .map_err(|e| e.to_string())?;
+        connecting.await.map_err(|e| e.to_string())
+    }
+
+    /// Async: wait for the next incoming connection (server role). Same nesting rule as [`Self::connect_to`].
+    pub async fn accept_incoming(&self) -> Result<quinn::Connection, String> {
+        let incoming = self
+            .endpoint
+            .accept()
+            .await
+            .ok_or_else(|| "endpoint closed or not accepting".to_string())?;
+        incoming.await.map_err(|e| e.to_string())
+    }
+
+    /// Outbound QUIC connection (blocking). Safe when not already inside [`Runtime::block_on`] for this runtime.
+    pub fn dial(&self, host: &str, port: u16, server_name: &str) -> Result<quinn::Connection, String> {
+        self.runtime.block_on(self.connect_to(host, port, server_name))
+    }
+
+    /// Wait for the next incoming connection (blocking). Safe when not already inside `block_on` for this runtime.
+    pub fn accept_one(&self) -> Result<quinn::Connection, String> {
+        self.runtime.block_on(self.accept_incoming())
+    }
+
+    /// Close the QUIC endpoint (cease accepting; tear down connections). Safe to call from another thread.
+    ///
+    /// Use this to unblock [`accept_incoming`] / [`connect_to`] while a worker is stuck in
+    /// [`Runtime::block_on`] — e.g. UI “stop” must not [`JoinHandle::join`] without closing first or the UI thread deadlocks.
+    pub fn close_endpoint(&self) {
+        self.endpoint.close(VarInt::from_u32(0), &[]);
     }
 
     /// Placeholder for post-connect bandwidth probe (call once `Connection` exists).

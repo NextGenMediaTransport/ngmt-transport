@@ -19,6 +19,10 @@ Regenerate by running `cargo build` from this repository root. **Commit** this h
 
 Exported symbols include **`NgmtObjectHeader`**, **`WlanOptimization`**, **`ngmt_transport_init`** / **`ngmt_transport_shutdown`**, and LE helpers **`ngmt_object_header_write_le`** / **`ngmt_object_header_read_le`**. Link against the **`cdylib`** artifact when integrating with C++.
 
+## Rust API for tools (`ngmt-studio`)
+
+The **`app_api`** module (exported from the crate root) provides **`TransportStatsSnapshot`**, **`snapshot_stats`**, **`send_datagram`**, **`recv_datagram_async`**, **`ConnectionIntent`**, and **`JitterRing`** for Phase 4 apps. **`TransportRuntime`** exposes **`local_addr`**, **`dial`**, and **`accept_one`** for QUIC sessions (lab certificate verification; not for production).
+
 ## Smoke binary
 
 ```bash
