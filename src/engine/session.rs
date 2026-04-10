@@ -7,7 +7,7 @@
 
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use quinn::congestion::BbrConfig;
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
@@ -19,6 +19,14 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use tokio::runtime::Runtime;
 
 use crate::ffi::{NgmtTransportConfig, WlanOptimization};
+
+fn quic_wall_ms() -> u128 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+}
+
+fn quic_eprintln(msg: impl AsRef<str>) {
+    eprintln!("{}", msg.as_ref());
+}
 
 /// Owns the tokio runtime and Quinn endpoint (Phase 3: bind + crypto + WAN tuning).
 pub struct TransportRuntime {
@@ -186,23 +194,115 @@ impl TransportRuntime {
         port: u16,
         server_name: &str,
     ) -> Result<quinn::Connection, String> {
-        let addr = tokio::net::lookup_host((host, port))
+        let t0 = quic_wall_ms();
+        quic_eprintln(format!(
+            "[{t0}ms] [ngmt-transport] connect_to START host={host:?} port={port} server_name={server_name:?}"
+        ));
+
+        let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
             .await
-            .map_err(|e| e.to_string())?
-            .next()
-            .ok_or_else(|| "DNS lookup returned no addresses".to_string())?;
-        let connecting = self.endpoint.connect(addr, server_name).map_err(|e| e.to_string())?;
-        connecting.await.map_err(|e| e.to_string())
+            .map_err(|e| {
+                quic_eprintln(format!(
+                    "[{}ms] [ngmt-transport] connect_to DNS lookup_host ERROR: {e}",
+                    quic_wall_ms()
+                ));
+                e.to_string()
+            })?
+            .collect();
+
+        if addrs.is_empty() {
+            quic_eprintln(format!(
+                "[{}ms] [ngmt-transport] connect_to FAIL: no addresses for {host:?}:{port}",
+                quic_wall_ms()
+            ));
+            return Err("DNS lookup returned no addresses".to_string());
+        }
+
+        quic_eprintln(format!(
+            "[{}ms] [ngmt-transport] connect_to resolved {} addr(s): {:?}",
+            quic_wall_ms(),
+            addrs.len(),
+            addrs
+        ));
+
+        let mut last_err = String::from("no connection attempts");
+        for (i, addr) in addrs.iter().enumerate() {
+            let t = quic_wall_ms();
+            quic_eprintln(format!(
+                "[{t}ms] [ngmt-transport] connect_to try [{i}/{}] {addr} (handshake may take several seconds if peer not listening)",
+                addrs.len()
+            ));
+            let connecting = match self.endpoint.connect(*addr, server_name) {
+                Ok(c) => c,
+                Err(e) => {
+                    last_err = e.to_string();
+                    quic_eprintln(format!(
+                        "[{}ms] [ngmt-transport] connect_to endpoint.connect failed for {addr}: {last_err}",
+                        quic_wall_ms()
+                    ));
+                    continue;
+                }
+            };
+            match connecting.await {
+                Ok(conn) => {
+                    quic_eprintln(format!(
+                        "[{}ms] [ngmt-transport] connect_to OK via {addr} rtt={:?}",
+                        quic_wall_ms(),
+                        conn.stats().path.rtt
+                    ));
+                    return Ok(conn);
+                }
+                Err(e) => {
+                    last_err = e.to_string();
+                    quic_eprintln(format!(
+                        "[{}ms] [ngmt-transport] connect_to handshake FAILED for {addr}: {last_err}",
+                        quic_wall_ms()
+                    ));
+                }
+            }
+        }
+
+        quic_eprintln(format!(
+            "[{}ms] [ngmt-transport] connect_to EXHAUSTED all addresses. Last error: {last_err}",
+            quic_wall_ms()
+        ));
+        Err(last_err)
     }
 
     /// Async: wait for the next incoming connection (server role). Same nesting rule as [`Self::connect_to`].
     pub async fn accept_incoming(&self) -> Result<quinn::Connection, String> {
-        let incoming = self
-            .endpoint
-            .accept()
-            .await
-            .ok_or_else(|| "endpoint closed or not accepting".to_string())?;
-        incoming.await.map_err(|e| e.to_string())
+        quic_eprintln(format!(
+            "[{}ms] [ngmt-transport] accept_incoming waiting on endpoint.accept() (peer must dial in)",
+            quic_wall_ms()
+        ));
+        let incoming = self.endpoint.accept().await.ok_or_else(|| {
+            quic_eprintln(format!(
+                "[{}ms] [ngmt-transport] accept_incoming endpoint closed (no incoming)",
+                quic_wall_ms()
+            ));
+            "endpoint closed or not accepting".to_string()
+        })?;
+        quic_eprintln(format!(
+            "[{}ms] [ngmt-transport] accept_incoming got Connecting; awaiting handshake",
+            quic_wall_ms()
+        ));
+        match incoming.await {
+            Ok(conn) => {
+                quic_eprintln(format!(
+                    "[{}ms] [ngmt-transport] accept_incoming handshake OK rtt={:?}",
+                    quic_wall_ms(),
+                    conn.stats().path.rtt
+                ));
+                Ok(conn)
+            }
+            Err(e) => {
+                quic_eprintln(format!(
+                    "[{}ms] [ngmt-transport] accept_incoming handshake ERR: {e}",
+                    quic_wall_ms()
+                ));
+                Err(e.to_string())
+            }
+        }
     }
 
     /// Outbound QUIC connection (blocking). Safe when not already inside [`Runtime::block_on`] for this runtime.

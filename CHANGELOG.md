@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **`TransportRuntime::connect_to`:** Logs **wall-clock ms** and **all** resolved `lookup_host` addresses to **stderr**; attempts a QUIC handshake to **each** address in order (previous code used only the first). Helps debug Studio connects when `Mac.local` returns multiple A/AAAA records.
+
 ### Fixed
 
 - **QUIC client ALPN:** client `rustls` configs now set **`alpn_protocols = ["ngmt"]`** to match the server, fixing failed handshakes when dialing (integration test `tests/loopback_connect.rs`, Studio outgoing mode).
