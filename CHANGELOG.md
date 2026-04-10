@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **QUIC client ALPN:** client `rustls` configs now set **`alpn_protocols = ["ngmt"]`** to match the server, fixing failed handshakes when dialing (integration test `tests/loopback_connect.rs`, Studio outgoing mode).
+
+### Added
+
+- **`cbindgen.toml`:** `cpp_compat = true` so generated `include/ngmt_transport.h` wraps declarations in `extern "C"` for C++ consumers.
+- **Integration test:** `tests/loopback_connect.rs` — localhost `accept_one` + `dial` smoke.
+
 ## 2026-04-10 — Phase 4: Rust API for Studio tools
 
 ### Added

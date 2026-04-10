@@ -70,6 +70,10 @@ typedef struct NgmtByteSlice {
   uintptr_t len;
 } NgmtByteSlice;
 
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
 /**
  * Returns the current ABI version of the transport library.
  */
@@ -97,5 +101,9 @@ bool ngmt_object_header_read_le(const uint8_t *bytes, struct NgmtObjectHeader *o
 bool ngmt_transport_init(const struct NgmtTransportConfig *config);
 
 void ngmt_transport_shutdown(void);
+
+#ifdef __cplusplus
+} // extern "C"
+#endif // __cplusplus
 
 #endif /* NGMT_TRANSPORT_H */

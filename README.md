@@ -4,7 +4,8 @@ First-party **QUIC / WAN** transport layer for **NextGenMediaTransport (NGMT)**.
 
 ## Stack (Phase 3)
 
-- **[Quinn](https://github.com/quinn-rs/quinn)** with **`runtime-tokio`** and **`rustls`**; **BBR** congestion control via `quinn::congestion::BbrConfig`.
+- **[Quinn](https://github.com/quinn-rs/quinn)** with **`runtime-tokio`** and **`rustls`**; **ALPN** `ngmt` on client and server; **BBR** congestion control via `quinn::congestion::BbrConfig`.
+- **WAN scope:** direct QUIC with lab certificates — **not** STUN/TURN/ICE yet; see the meta-repo Phase 3 plan for assumptions.
 - **[Tokio](https://tokio.rs/)** for async I/O.
 - **[tracing](https://docs.rs/tracing)** + **[tracing-subscriber](https://docs.rs/tracing-subscriber)** for structured diagnostics (subscriber installation is application-owned).
 - **[rcgen](https://crates.io/crates/rcgen)** for ephemeral lab certificates.

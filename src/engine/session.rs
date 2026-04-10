@@ -125,10 +125,12 @@ impl TransportRuntime {
             let qrt = Arc::new(quinn::TokioRuntime);
 
             if is_client {
-                let client_crypto = rustls::ClientConfig::builder()
+                let mut client_crypto = rustls::ClientConfig::builder()
                     .dangerous()
                     .with_custom_certificate_verifier(SkipServerVerification::new())
                     .with_no_client_auth();
+                // Match server ALPN (`ngmt`) so handshake succeeds (Studio dial/accept, tests).
+                client_crypto.alpn_protocols = vec![b"ngmt".to_vec()];
                 let mut cc = ClientConfig::new(Arc::new(
                     QuicClientConfig::try_from(client_crypto).map_err(|e| e.to_string())?,
                 ));
@@ -154,10 +156,11 @@ impl TransportRuntime {
                     Endpoint::new(EndpointConfig::default(), Some(server_config), socket, qrt)
                         .map_err(|e| e.to_string())?;
                 // Same endpoint can dial peers (WAN push / pull) while listening for incoming.
-                let client_crypto = rustls::ClientConfig::builder()
+                let mut client_crypto = rustls::ClientConfig::builder()
                     .dangerous()
                     .with_custom_certificate_verifier(SkipServerVerification::new())
                     .with_no_client_auth();
+                client_crypto.alpn_protocols = vec![b"ngmt".to_vec()];
                 let mut cc = ClientConfig::new(Arc::new(
                     QuicClientConfig::try_from(client_crypto).map_err(|e| e.to_string())?,
                 ));

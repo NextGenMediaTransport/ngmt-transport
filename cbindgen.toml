@@ -2,6 +2,8 @@
 # Run: cargo build (build.rs regenerates include/ngmt_transport.h)
 
 language = "C"
+# Wrap exported functions in `extern "C"` for C++ consumers (CMake, ngmt-core smoke tool).
+cpp_compat = true
 pragma_once = true
 include_guard = "NGMT_TRANSPORT_H"
 sys_includes = ["stdint.h", "stdbool.h", "stddef.h"]
