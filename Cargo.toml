@@ -10,7 +10,7 @@ readme = "README.md"
 
 [dependencies]
 bytes = "1"
-tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "net"] }
+tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "net", "time"] }
 # rustls-ring (via `rustls`) for cross-platform TLS without system OpenSSL; runtime-tokio for async I/O.
 quinn = { version = "0.11", features = ["runtime-tokio", "rustls"] }
 tracing = "0.1"

@@ -22,7 +22,7 @@ Exported symbols include **`NgmtObjectHeader`**, **`WlanOptimization`**, **`ngmt
 
 ## Rust API for tools (`ngmt-studio`)
 
-The **`app_api`** module (exported from the crate root) provides **`TransportStatsSnapshot`**, **`snapshot_stats`**, **`send_datagram`**, **`recv_datagram_async`**, **`ConnectionIntent`**, and **`JitterRing`** for Phase 4 apps. **`TransportRuntime`** exposes **`local_addr`**, **`dial`**, and **`accept_one`** for QUIC sessions (lab certificate verification; not for production).
+The **`app_api`** module (exported from the crate root) provides **`TransportStatsSnapshot`**, **`snapshot_stats`**, **`max_ngmt_media_fragment_body`** (path-MTU-safe media fragment size), **`send_datagram`**, **`recv_datagram_async`**, **`ConnectionIntent`**, and **`JitterRing`** for Phase 4 apps. **`TransportRuntime`** exposes **`local_addr`**, **`dial`**, and **`accept_one`** for QUIC sessions (lab certificate verification; not for production).
 
 ## Smoke binary
 

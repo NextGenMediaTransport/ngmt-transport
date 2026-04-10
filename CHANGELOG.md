@@ -4,12 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`app_api::max_ngmt_media_fragment_body`:** Computes a safe per-path **`max_fragment_body`** for NGMT media (32-byte object header + body) from **`Connection::max_datagram_size()`** so payloads stay under the **QUIC path MTU** until discovery raises it.
+
 ### Changed
 
 - **`TransportRuntime::connect_to`:** Logs **wall-clock ms** and **all** resolved `lookup_host` addresses to **stderr**; attempts a QUIC handshake to **each** address in order (previous code used only the first). Helps debug Studio connects when `Mac.local` returns multiple A/AAAA records.
+- **`TransportRuntime::connect_to`:** Resolves are **sorted** (loopback and IPv4 LAN before unrelated `fe80::…` link-local) and each attempt uses a **3 s** handshake timeout so dead paths fail fast instead of ~30 s each.
 
 ### Fixed
 
+- **Studio VMX path:** Oversized application datagrams vs initial QUIC MTU (not the negotiated 64 KiB frame limit) caused immediate **`SendDatagramError::TooLarge`** after handshake; generators now cap fragment size using **`Connection::max_datagram_size()`**.
 - **QUIC client ALPN:** client `rustls` configs now set **`alpn_protocols = ["ngmt"]`** to match the server, fixing failed handshakes when dialing (integration test `tests/loopback_connect.rs`, Studio outgoing mode).
 
 ### Added

@@ -38,6 +38,19 @@ pub fn snapshot_stats(conn: &Connection) -> TransportStatsSnapshot {
     }
 }
 
+/// Upper bound for `max_fragment_body` in NGMT media helpers (32-byte object header + body) on this
+/// QUIC path.
+///
+/// Quinn caps application datagram size by **path MTU** (often ~1200 bytes initially), not only by
+/// the negotiated `max_datagram_frame_size`. Callers must pass `min(app_default, this)` so
+/// `send_datagram` does not return [`quinn::SendDatagramError::TooLarge`].
+pub fn max_ngmt_media_fragment_body(conn: &Connection) -> usize {
+    const NGMT_OBJECT_HEADER: usize = 32;
+    const MIN_BODY: usize = 256;
+    let max_pkt = conn.max_datagram_size().unwrap_or(1200);
+    max_pkt.saturating_sub(NGMT_OBJECT_HEADER).max(MIN_BODY)
+}
+
 /// Send one unreliable datagram (NGMT object payload or fragment).
 pub fn send_datagram(conn: &Connection, payload: &[u8]) -> Result<(), quinn::SendDatagramError> {
     conn.send_datagram(Bytes::copy_from_slice(payload))

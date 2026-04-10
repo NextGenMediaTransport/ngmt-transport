@@ -5,7 +5,7 @@
 //! and enables **datagrams** for media **objects**. `WlanOptimization` tightens keep-alive and
 //! jitter-buffer hints for Wi-Fi PSM / loss environments.
 
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -17,6 +17,7 @@ use quinn::{
 use rcgen::CertifiedKey;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use tokio::runtime::Runtime;
+use tokio::time::timeout;
 
 use crate::ffi::{NgmtTransportConfig, WlanOptimization};
 
@@ -26,6 +27,44 @@ fn quic_wall_ms() -> u128 {
 
 fn quic_eprintln(msg: impl AsRef<str>) {
     eprintln!("{}", msg.as_ref());
+}
+
+/// Per-address QUIC handshake wait: failed paths (wrong interface, blackhole) fail fast instead of
+/// waiting for the full idle-style timeout (~30s) on each candidate.
+const CONNECT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Prefer loopback, then IPv4 LAN/private, then global unicast, then `fe80::1`, then other
+/// link-local IPv6 — avoids serial 30s timeouts on irrelevant `fe80::…` from `lookup_host`.
+fn sort_connect_addrs(mut addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
+    fn tier(addr: &SocketAddr) -> u8 {
+        match addr.ip() {
+            IpAddr::V4(v4) => {
+                if v4.is_loopback() {
+                    0
+                } else if v4.is_private() || v4.is_link_local() {
+                    2
+                } else {
+                    4
+                }
+            }
+            IpAddr::V6(v6) => {
+                if v6.is_loopback() {
+                    1
+                } else if v6.segments()[0] == 0xfe80 {
+                    let s = v6.segments();
+                    if s[1..] == [0, 0, 0, 0, 0, 0, 1] {
+                        3 // fe80::1 — often works like loopback on some stacks
+                    } else {
+                        6
+                    }
+                } else {
+                    4 // global, ULA, etc. (not fe80 / not loopback)
+                }
+            }
+        }
+    }
+    addrs.sort_by_key(|a| (tier(a), *a));
+    addrs
 }
 
 /// Owns the tokio runtime and Quinn endpoint (Phase 3: bind + crypto + WAN tuning).
@@ -218,8 +257,10 @@ impl TransportRuntime {
             return Err("DNS lookup returned no addresses".to_string());
         }
 
+        let addrs = sort_connect_addrs(addrs);
+
         quic_eprintln(format!(
-            "[{}ms] [ngmt-transport] connect_to resolved {} addr(s): {:?}",
+            "[{}ms] [ngmt-transport] connect_to resolved {} addr(s) (sorted): {:?}",
             quic_wall_ms(),
             addrs.len(),
             addrs
@@ -229,8 +270,9 @@ impl TransportRuntime {
         for (i, addr) in addrs.iter().enumerate() {
             let t = quic_wall_ms();
             quic_eprintln(format!(
-                "[{t}ms] [ngmt-transport] connect_to try [{i}/{}] {addr} (handshake may take several seconds if peer not listening)",
-                addrs.len()
+                "[{t}ms] [ngmt-transport] connect_to try [{i}/{}] {addr} (handshake timeout {} ms per addr)",
+                addrs.len(),
+                CONNECT_HANDSHAKE_TIMEOUT.as_millis()
             ));
             let connecting = match self.endpoint.connect(*addr, server_name) {
                 Ok(c) => c,
@@ -243,8 +285,8 @@ impl TransportRuntime {
                     continue;
                 }
             };
-            match connecting.await {
-                Ok(conn) => {
+            match timeout(CONNECT_HANDSHAKE_TIMEOUT, connecting).await {
+                Ok(Ok(conn)) => {
                     quic_eprintln(format!(
                         "[{}ms] [ngmt-transport] connect_to OK via {addr} rtt={:?}",
                         quic_wall_ms(),
@@ -252,11 +294,19 @@ impl TransportRuntime {
                     ));
                     return Ok(conn);
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     last_err = e.to_string();
                     quic_eprintln(format!(
                         "[{}ms] [ngmt-transport] connect_to handshake FAILED for {addr}: {last_err}",
                         quic_wall_ms()
+                    ));
+                }
+                Err(_) => {
+                    last_err = format!("handshake timed out after {} ms", CONNECT_HANDSHAKE_TIMEOUT.as_millis());
+                    quic_eprintln(format!(
+                        "[{}ms] [ngmt-transport] connect_to handshake TIMEOUT for {addr} ({})",
+                        quic_wall_ms(),
+                        last_err
                     ));
                 }
             }
