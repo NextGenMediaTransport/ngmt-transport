@@ -28,10 +28,6 @@ fn main() {
         },
     };
     let ok = ngmt_transport_init(&cfg as *const _);
-    eprintln!(
-        "ngmt_transport_init: {} ({} ms)",
-        ok,
-        t0.elapsed().as_millis()
-    );
+    eprintln!("ngmt_transport_init: {} ({} ms)", ok, t0.elapsed().as_millis());
     ngmt_transport_shutdown();
 }

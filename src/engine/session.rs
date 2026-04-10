@@ -33,12 +33,10 @@ fn build_transport_config(wlan: &WlanOptimization) -> TransportConfig {
     } else {
         wlan.keep_alive_interval_ms.max(250)
     };
-    t.max_idle_timeout(Some(
-        IdleTimeout::try_from(Duration::from_secs(30)).expect("idle timeout"),
-    ))
-    .keep_alive_interval(Some(Duration::from_millis(keep_ms as u64)))
-    .datagram_send_buffer_size(4 * 1024 * 1024)
-    .datagram_receive_buffer_size(Some(4 * 1024 * 1024));
+    t.max_idle_timeout(Some(IdleTimeout::try_from(Duration::from_secs(30)).expect("idle timeout")))
+        .keep_alive_interval(Some(Duration::from_millis(keep_ms as u64)))
+        .datagram_send_buffer_size(4 * 1024 * 1024)
+        .datagram_receive_buffer_size(Some(4 * 1024 * 1024));
 
     t.congestion_controller_factory(Arc::new(BbrConfig::default()));
 
@@ -46,11 +44,9 @@ fn build_transport_config(wlan: &WlanOptimization) -> TransportConfig {
 }
 
 fn generate_certs() -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), String> {
-    let CertifiedKey { cert, key_pair } = rcgen::generate_simple_self_signed(vec![
-        "localhost".into(),
-        "ngmt.local".into(),
-    ])
-    .map_err(|e| e.to_string())?;
+    let CertifiedKey { cert, key_pair } =
+        rcgen::generate_simple_self_signed(vec!["localhost".into(), "ngmt.local".into()])
+            .map_err(|e| e.to_string())?;
     let cert_der = cert.der().clone();
     let key = PrivateKeyDer::Pkcs8(key_pair.serialize_der().into());
     Ok((vec![cert_der], key))
@@ -115,11 +111,7 @@ impl TransportRuntime {
     pub fn new(config: NgmtTransportConfig) -> Result<Self, String> {
         let runtime = Runtime::new().map_err(|e| e.to_string())?;
 
-        let bind_port = if config.bind_port == 0 {
-            0
-        } else {
-            config.bind_port
-        };
+        let bind_port = if config.bind_port == 0 { 0 } else { config.bind_port };
 
         let socket = UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, bind_port)))
             .or_else(|_| UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, bind_port))))
@@ -155,17 +147,12 @@ impl TransportRuntime {
                     .map_err(|e| e.to_string())?;
                 server_crypto.alpn_protocols = vec![b"ngmt".to_vec()];
                 let mut server_config = ServerConfig::with_crypto(Arc::new(
-                    QuicServerConfig::try_from(server_crypto)
-                        .map_err(|e| format!("{:?}", e))?,
+                    QuicServerConfig::try_from(server_crypto).map_err(|e| format!("{:?}", e))?,
                 ));
                 server_config.transport_config(Arc::clone(&transport));
-                let mut ep = Endpoint::new(
-                    EndpointConfig::default(),
-                    Some(server_config),
-                    socket,
-                    qrt,
-                )
-                .map_err(|e| e.to_string())?;
+                let mut ep =
+                    Endpoint::new(EndpointConfig::default(), Some(server_config), socket, qrt)
+                        .map_err(|e| e.to_string())?;
                 // Same endpoint can dial peers (WAN push / pull) while listening for incoming.
                 let client_crypto = rustls::ClientConfig::builder()
                     .dangerous()
@@ -201,10 +188,7 @@ impl TransportRuntime {
             .map_err(|e| e.to_string())?
             .next()
             .ok_or_else(|| "DNS lookup returned no addresses".to_string())?;
-        let connecting = self
-            .endpoint
-            .connect(addr, server_name)
-            .map_err(|e| e.to_string())?;
+        let connecting = self.endpoint.connect(addr, server_name).map_err(|e| e.to_string())?;
         connecting.await.map_err(|e| e.to_string())
     }
 
@@ -219,7 +203,12 @@ impl TransportRuntime {
     }
 
     /// Outbound QUIC connection (blocking). Safe when not already inside [`Runtime::block_on`] for this runtime.
-    pub fn dial(&self, host: &str, port: u16, server_name: &str) -> Result<quinn::Connection, String> {
+    pub fn dial(
+        &self,
+        host: &str,
+        port: u16,
+        server_name: &str,
+    ) -> Result<quinn::Connection, String> {
         self.runtime.block_on(self.connect_to(host, port, server_name))
     }
 

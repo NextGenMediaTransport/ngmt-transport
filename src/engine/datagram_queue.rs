@@ -15,10 +15,7 @@ pub struct DatagramQueue {
 
 impl DatagramQueue {
     pub fn new(max_items: usize) -> Self {
-        Self {
-            max_items: max_items.max(1),
-            inner: Mutex::new(VecDeque::new()),
-        }
+        Self { max_items: max_items.max(1), inner: Mutex::new(VecDeque::new()) }
     }
 
     pub fn push(&self, payload: Vec<u8>) -> Result<(), Vec<u8>> {

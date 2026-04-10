@@ -65,12 +65,7 @@ pub struct WlanOptimization {
 
 impl Default for WlanOptimization {
     fn default() -> Self {
-        Self {
-            enabled: 0,
-            _pad: [0; 3],
-            keep_alive_interval_ms: 500,
-            jitter_buffer_depth_ms: 80,
-        }
+        Self { enabled: 0, _pad: [0; 3], keep_alive_interval_ms: 500, jitter_buffer_depth_ms: 80 }
     }
 }
 
@@ -112,7 +107,10 @@ pub extern "C" fn ngmt_transport_abi_version() -> u32 {
 /// # Safety
 /// `header` and `out` must be valid for read/write of 32 bytes respectively.
 #[no_mangle]
-pub unsafe extern "C" fn ngmt_object_header_write_le(header: *const NgmtObjectHeader, out: *mut u8) {
+pub unsafe extern "C" fn ngmt_object_header_write_le(
+    header: *const NgmtObjectHeader,
+    out: *mut u8,
+) {
     if header.is_null() || out.is_null() {
         return;
     }
@@ -147,12 +145,8 @@ pub unsafe extern "C" fn ngmt_object_header_read_le(
     h.flags = s[1];
     h.reserved = u16::from_le_bytes([s[2], s[3]]);
     h.track_id = u32::from_le_bytes([s[4], s[5], s[6], s[7]]);
-    h.group_id = u64::from_le_bytes([
-        s[8], s[9], s[10], s[11], s[12], s[13], s[14], s[15],
-    ]);
-    h.object_id = u64::from_le_bytes([
-        s[16], s[17], s[18], s[19], s[20], s[21], s[22], s[23],
-    ]);
+    h.group_id = u64::from_le_bytes([s[8], s[9], s[10], s[11], s[12], s[13], s[14], s[15]]);
+    h.object_id = u64::from_le_bytes([s[16], s[17], s[18], s[19], s[20], s[21], s[22], s[23]]);
     h.fragment_index = u16::from_le_bytes([s[24], s[25]]);
     h.fragment_total = u16::from_le_bytes([s[26], s[27]]);
     h.payload_length = u32::from_le_bytes([s[28], s[29], s[30], s[31]]);

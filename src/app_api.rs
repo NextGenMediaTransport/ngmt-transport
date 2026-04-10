@@ -80,12 +80,7 @@ pub struct JitterRing {
 
 impl JitterRing {
     pub fn new(capacity: usize, jitter_buffer_depth_ms: f32) -> Self {
-        Self {
-            cap: capacity.max(4),
-            samples_ms: Vec::new(),
-            idx: 0,
-            jitter_buffer_depth_ms,
-        }
+        Self { cap: capacity.max(4), samples_ms: Vec::new(), idx: 0, jitter_buffer_depth_ms }
     }
 
     /// Push inter-arrival delta in ms; returns recent mean absolute deviation as "swing" hint.
