@@ -1,0 +1,26 @@
+# cbindgen config for ngmt-transport C ABI (Phase 3).
+# Run: cargo build (build.rs regenerates include/ngmt_transport.h)
+
+language = "C"
+pragma_once = true
+include_guard = "NGMT_TRANSPORT_H"
+sys_includes = ["stdint.h", "stdbool.h", "stddef.h"]
+documentation = true
+documentation_style = "doxy"
+
+[export]
+# Export C ABI types and #[no_mangle] functions from `ffi`
+include = [
+  "NgmtObjectHeader",
+  "NgmtByteSlice",
+  "NgmtTransportConfig",
+  "WlanOptimization",
+  "ngmt_transport_abi_version",
+  "ngmt_object_header_write_le",
+  "ngmt_object_header_read_le",
+  "ngmt_transport_init",
+  "ngmt_transport_shutdown",
+]
+
+[fn]
+rename_args = "None"

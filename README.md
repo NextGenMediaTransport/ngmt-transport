@@ -2,21 +2,28 @@
 
 First-party **QUIC / WAN** transport layer for **NextGenMediaTransport (NGMT)**. This repository is **greenfield**: there is no legacy Open Media Transport code here. The crate will own QUIC session logic, congestion-aware media streaming over lossy links, and eventually **FFI** to the C++ **ngmt-core** library.
 
-## Stack (Phase 2)
+## Stack (Phase 3)
 
-- **[Quinn](https://github.com/quinn-rs/quinn)** with explicit **`runtime-tokio`** and **`rustls`** features so TLS behavior is consistent on Linux, Windows, and macOS (pure Rust / **rustls** + **ring**, no system OpenSSL in CI).
+- **[Quinn](https://github.com/quinn-rs/quinn)** with **`runtime-tokio`** and **`rustls`**; **BBR** congestion control via `quinn::congestion::BbrConfig`.
 - **[Tokio](https://tokio.rs/)** for async I/O.
 - **[tracing](https://docs.rs/tracing)** + **[tracing-subscriber](https://docs.rs/tracing-subscriber)** for structured diagnostics (subscriber installation is application-owned).
+- **[rcgen](https://crates.io/crates/rcgen)** for ephemeral lab certificates.
 
 ## C header for C++ (`ngmt-core`)
 
-The build script runs **[cbindgen](https://github.com/mozilla/cbindgen)** and writes:
+The build script runs **[cbindgen](https://github.com/mozilla/cbindgen)** (see `cbindgen.toml`) and writes:
 
 `include/ngmt_transport.h`
 
 Regenerate by running `cargo build` from this repository root. **Commit** this header so CMake projects can add `target_include_directories(... include)` without running Cargo first, or document your policy if you prefer generating only in CI.
 
-Exported symbols use a stable C ABI (e.g. `ngmt_transport_abi_version`). Link against the **`cdylib`** artifact when integrating with C++.
+Exported symbols include **`NgmtObjectHeader`**, **`WlanOptimization`**, **`ngmt_transport_init`** / **`ngmt_transport_shutdown`**, and LE helpers **`ngmt_object_header_write_le`** / **`ngmt_object_header_read_le`**. Link against the **`cdylib`** artifact when integrating with C++.
+
+## Smoke binary
+
+```bash
+cargo run --bin ngmt_smoke
+```
 
 ## Build
 

@@ -1,0 +1,177 @@
+//! Quinn `Endpoint` wrapper: BBR congestion control, keep-alive, optional warm-up burst.
+//!
+//! ## MoQ alignment
+//! Reliable **control** uses QUIC **streams** (future); this module establishes the **connection**
+//! and enables **datagrams** for media **objects**. `WlanOptimization` tightens keep-alive and
+//! jitter-buffer hints for Wi-Fi PSM / loss environments.
+
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+use std::sync::Arc;
+use std::time::Duration;
+
+use quinn::congestion::BbrConfig;
+use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
+use quinn::{ClientConfig, Endpoint, EndpointConfig, IdleTimeout, ServerConfig, TransportConfig};
+use rcgen::CertifiedKey;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
+use tokio::runtime::Runtime;
+
+use crate::ffi::{NgmtTransportConfig, WlanOptimization};
+
+/// Owns the tokio runtime and Quinn endpoint (Phase 3: bind + crypto + WAN tuning).
+pub struct TransportRuntime {
+    pub runtime: Runtime,
+    pub endpoint: Endpoint,
+}
+
+fn build_transport_config(wlan: &WlanOptimization) -> TransportConfig {
+    let mut t = TransportConfig::default();
+    let keep_ms = if wlan.enabled != 0 {
+        wlan.keep_alive_interval_ms.max(10)
+    } else {
+        wlan.keep_alive_interval_ms.max(250)
+    };
+    t.max_idle_timeout(Some(
+        IdleTimeout::try_from(Duration::from_secs(30)).expect("idle timeout"),
+    ))
+    .keep_alive_interval(Some(Duration::from_millis(keep_ms as u64)))
+    .datagram_send_buffer_size(4 * 1024 * 1024)
+    .datagram_receive_buffer_size(Some(4 * 1024 * 1024));
+
+    t.congestion_controller_factory(Arc::new(BbrConfig::default()));
+
+    t
+}
+
+fn generate_certs() -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), String> {
+    let CertifiedKey { cert, key_pair } = rcgen::generate_simple_self_signed(vec![
+        "localhost".into(),
+        "ngmt.local".into(),
+    ])
+    .map_err(|e| e.to_string())?;
+    let cert_der = cert.der().clone();
+    let key = PrivateKeyDer::Pkcs8(key_pair.serialize_der().into());
+    Ok((vec![cert_der], key))
+}
+
+/// Lab-only: accept any server certificate (MITM risk — never use in production).
+#[derive(Debug)]
+struct SkipServerVerification(Arc<rustls::crypto::CryptoProvider>);
+
+impl SkipServerVerification {
+    fn new() -> Arc<Self> {
+        Arc::new(Self(Arc::new(rustls::crypto::ring::default_provider())))
+    }
+}
+
+impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp: &[u8],
+        _now: UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
+    }
+}
+
+impl TransportRuntime {
+    pub fn new(config: NgmtTransportConfig) -> Result<Self, String> {
+        let runtime = Runtime::new().map_err(|e| e.to_string())?;
+
+        let bind_port = if config.bind_port == 0 {
+            0
+        } else {
+            config.bind_port
+        };
+
+        let socket = UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, bind_port)))
+            .or_else(|_| UdpSocket::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, bind_port))))
+            .map_err(|e| e.to_string())?;
+
+        let transport = build_transport_config(&config.wlan);
+        let is_client = !config.peer_host.is_null();
+
+        let endpoint = {
+            let _guard = runtime.enter();
+            let qrt = Arc::new(quinn::TokioRuntime);
+
+            if is_client {
+                let client_crypto = rustls::ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(SkipServerVerification::new())
+                    .with_no_client_auth();
+                let mut cc = ClientConfig::new(Arc::new(
+                    QuicClientConfig::try_from(client_crypto).map_err(|e| e.to_string())?,
+                ));
+                cc.transport_config(Arc::new(transport));
+                Endpoint::new(EndpointConfig::default(), None, socket, qrt)
+                    .map_err(|e| e.to_string())
+                    .map(|mut ep| {
+                        ep.set_default_client_config(cc);
+                        ep
+                    })?
+            } else {
+                let (certs, key) = generate_certs()?;
+                let mut server_crypto = rustls::ServerConfig::builder()
+                    .with_no_client_auth()
+                    .with_single_cert(certs, key)
+                    .map_err(|e| e.to_string())?;
+                server_crypto.alpn_protocols = vec![b"ngmt".to_vec()];
+                let mut server_config = ServerConfig::with_crypto(Arc::new(
+                    QuicServerConfig::try_from(server_crypto)
+                        .map_err(|e| format!("{:?}", e))?,
+                ));
+                server_config.transport_config(Arc::new(transport));
+                Endpoint::new(
+                    EndpointConfig::default(),
+                    Some(server_config),
+                    socket,
+                    qrt,
+                )
+                .map_err(|e| e.to_string())?
+            }
+        };
+
+        Ok(Self { runtime, endpoint })
+    }
+
+    /// Placeholder for post-connect bandwidth probe (call once `Connection` exists).
+    pub fn warm_up_burst_ms(_duration: Duration) {
+        // Future: send padding datagrams or a short unidirectional stream burst.
+    }
+}

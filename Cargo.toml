@@ -14,9 +14,16 @@ tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "net"] }
 quinn = { version = "0.11", features = ["runtime-tokio", "rustls"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rcgen = "0.13"
+# Single crypto backend for rustls (avoid aws-lc-rs + ring both enabled).
+rustls = { version = "0.23.37", default-features = false, features = ["ring", "std", "tls12"] }
 
 [build-dependencies]
 cbindgen = "0.26"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "ngmt_smoke"
+path = "src/bin/ngmt_smoke.rs"

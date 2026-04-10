@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-04-10 — Phase 3: QUIC engine, FFI, BBR, WLAN tuning
+
+### Added
+
+- **`engine/session`**: `TransportRuntime` with **quinn** `Endpoint`, **BBR** congestion control, datagram buffers, keep-alive driven by **`WlanOptimization`**.
+- **`engine/datagram_queue`**: bounded queue for unreliable payloads.
+- **`ffi`**: `NgmtObjectHeader`, `WlanOptimization`, `NgmtTransportConfig`, `ngmt_transport_init` / `shutdown`, LE read/write helpers; **cbindgen** + `cbindgen.toml`.
+- **`ngmt_smoke`** binary for quick ABI / endpoint bring-up.
+- Dependencies: **rcgen** (dev certs), **rustls** (explicit TLS).
+
 ## 2026-04-10 — Phase 2: Rust transport crate and CI
 
 ### Added
