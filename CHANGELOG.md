@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **`app_api::connection_error_trace_hint`:** Maps common [`ConnectionError`](https://docs.rs/quinn/latest/quinn/enum.ConnectionError.html) cases to a short static tag for Studio trace lines (full `Debug` still logged).
 - **`app_api::max_ngmt_media_fragment_body`:** Computes a safe per-path **`max_fragment_body`** for NGMT media (32-byte object header + body) from **`Connection::max_datagram_size()`** so payloads stay under the **QUIC path MTU** until discovery raises it.
 
 ### Changed

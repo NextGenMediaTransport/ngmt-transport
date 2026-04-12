@@ -10,8 +10,8 @@ pub mod engine;
 pub mod ffi;
 
 pub use app_api::{
-    max_ngmt_media_fragment_body, recv_datagram_async, send_datagram, snapshot_stats,
-    ConnectionIntent, JitterRing, TransportStatsSnapshot,
+    connection_error_trace_hint, max_ngmt_media_fragment_body, recv_datagram_async, send_datagram,
+    snapshot_stats, ConnectionIntent, JitterRing, TransportStatsSnapshot,
 };
 pub use engine::session::TransportRuntime;
 pub use ffi::{

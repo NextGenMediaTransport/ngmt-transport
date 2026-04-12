@@ -3,7 +3,7 @@
 //! C ABI remains in [`crate::ffi`]; applications should prefer this module when built as Rust.
 
 use bytes::Bytes;
-use quinn::Connection;
+use quinn::{Connection, ConnectionError};
 
 /// Snapshot of [`Connection::stats`] plus RTT for overlays (Monitor dashboard).
 #[derive(Debug, Clone, Copy, Default)]
@@ -59,6 +59,26 @@ pub fn send_datagram(conn: &Connection, payload: &[u8]) -> Result<(), quinn::Sen
 /// Blocking receive for tooling threads (studio uses `block_on` on the transport runtime).
 pub async fn recv_datagram_async(conn: &Connection) -> Result<Bytes, quinn::ConnectionError> {
     conn.read_datagram().await
+}
+
+/// Short operator-facing tag for lab logs; keep full [`Debug`] of the error on the same line.
+pub fn connection_error_trace_hint(err: &ConnectionError) -> &'static str {
+    match err {
+        ConnectionError::ApplicationClosed(close) => {
+            if close.error_code.into_inner() == 0 {
+                "likely_peer_closed_gracefully"
+            } else {
+                "application_closed_nonzero_code"
+            }
+        }
+        ConnectionError::ConnectionClosed(_) => "connection_closed_by_peer",
+        ConnectionError::Reset => "reset_by_peer",
+        ConnectionError::TimedOut => "timed_out",
+        ConnectionError::LocallyClosed => "locally_closed",
+        ConnectionError::VersionMismatch => "version_mismatch",
+        ConnectionError::TransportError(_) => "transport_protocol_error",
+        ConnectionError::CidsExhausted => "connection_ids_exhausted",
+    }
 }
 
 /// High-level connection intent for documentation and UI labels (both sides use QUIC client/server).
