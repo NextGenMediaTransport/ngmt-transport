@@ -5,6 +5,8 @@
 //! and enables **datagrams** for media **objects**. `WlanOptimization` tightens keep-alive and
 //! jitter-buffer hints for Wi-Fi PSM / loss environments.
 
+use std::fs::File;
+use std::io::BufReader;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -100,6 +102,82 @@ fn generate_certs() -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'stat
     Ok((vec![cert_der], key))
 }
 
+/// Load PEM-encoded certificates (typically a **server leaf** or **private CA** chain) for
+/// [`rustls::RootCertStore`] — supports the v1.0 “pinning / operator PEM” story (see README).
+fn read_pem_certificates(path: &str) -> Result<Vec<CertificateDer<'static>>, String> {
+    let file = File::open(path).map_err(|e| format!("TLS: open certificate PEM {path}: {e}"))?;
+    let mut reader = BufReader::new(file);
+    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut reader)
+        .map(|r| r.map(CertificateDer::from))
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("TLS: parse certificate PEM {path}: {e}"))?;
+    if certs.is_empty() {
+        return Err(format!("TLS: no certificates found in {path}"));
+    }
+    Ok(certs)
+}
+
+fn read_pem_private_key(path: &str) -> Result<PrivateKeyDer<'static>, String> {
+    let file = File::open(path).map_err(|e| format!("TLS: open private key PEM {path}: {e}"))?;
+    let mut reader = BufReader::new(file);
+    rustls_pemfile::private_key(&mut reader)
+        .map_err(|e| format!("TLS: parse private key PEM {path}: {e}"))?
+        .ok_or_else(|| format!("TLS: no private key found in {path}"))
+}
+
+/// Operator TLS: PEM file path (repeatable semantics: one file may contain several certs).
+/// When set, QUIC **clients** use standard rustls verification against these trust anchors only
+/// (pin a known server cert, or ship a small private CA chain). When unset, clients keep the
+/// **lab** [`SkipServerVerification`] behavior so Studio/OBS zero-config keeps working.
+fn tls_trust_anchor_pem_path() -> Option<String> {
+    std::env::var("NGMT_TLS_TRUST_ANCHOR_PEM").ok().filter(|s| !s.is_empty())
+}
+
+fn tls_server_pem_paths() -> Result<Option<(String, String)>, String> {
+    let cert = std::env::var("NGMT_TLS_SERVER_CERT_PEM").ok().filter(|s| !s.is_empty());
+    let key = std::env::var("NGMT_TLS_SERVER_KEY_PEM").ok().filter(|s| !s.is_empty());
+    match (cert, key) {
+        (Some(c), Some(k)) => Ok(Some((c, k))),
+        (None, None) => Ok(None),
+        _ => Err(
+            "TLS: set both NGMT_TLS_SERVER_CERT_PEM and NGMT_TLS_SERVER_KEY_PEM, or neither (use rcgen lab certs)"
+                .into(),
+        ),
+    }
+}
+
+fn load_or_generate_server_identity() -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), String> {
+    match tls_server_pem_paths()? {
+        Some((cert_path, key_path)) => Ok((
+            read_pem_certificates(&cert_path)?,
+            read_pem_private_key(&key_path)?,
+        )),
+        None => generate_certs(),
+    }
+}
+
+fn build_quic_client_config(_transport: Arc<TransportConfig>) -> Result<ClientConfig, String> {
+    let mut client_crypto = if let Some(ref path) = tls_trust_anchor_pem_path() {
+        let anchors = read_pem_certificates(path)?;
+        let mut roots = rustls::RootCertStore::empty();
+        for c in anchors {
+            roots.add(c).map_err(|e| format!("TLS: trust anchor rejected: {e}"))?;
+        }
+        rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth()
+    } else {
+        rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(SkipServerVerification::new())
+            .with_no_client_auth()
+    };
+    client_crypto.alpn_protocols = vec![b"ngmt".to_vec()];
+    Ok(ClientConfig::new(Arc::new(
+        QuicClientConfig::try_from(client_crypto).map_err(|e| e.to_string())?,
+    )))
+}
+
 /// Lab-only: accept any server certificate (MITM risk — never use in production).
 #[derive(Debug)]
 struct SkipServerVerification(Arc<rustls::crypto::CryptoProvider>);
@@ -173,15 +251,7 @@ impl TransportRuntime {
             let qrt = Arc::new(quinn::TokioRuntime);
 
             if is_client {
-                let mut client_crypto = rustls::ClientConfig::builder()
-                    .dangerous()
-                    .with_custom_certificate_verifier(SkipServerVerification::new())
-                    .with_no_client_auth();
-                // Match server ALPN (`ngmt`) so handshake succeeds (Studio dial/accept, tests).
-                client_crypto.alpn_protocols = vec![b"ngmt".to_vec()];
-                let mut cc = ClientConfig::new(Arc::new(
-                    QuicClientConfig::try_from(client_crypto).map_err(|e| e.to_string())?,
-                ));
+                let mut cc = build_quic_client_config(Arc::clone(&transport))?;
                 cc.transport_config(Arc::clone(&transport));
                 Endpoint::new(EndpointConfig::default(), None, socket, qrt)
                     .map_err(|e| e.to_string())
@@ -190,7 +260,7 @@ impl TransportRuntime {
                         ep
                     })?
             } else {
-                let (certs, key) = generate_certs()?;
+                let (certs, key) = load_or_generate_server_identity()?;
                 let mut server_crypto = rustls::ServerConfig::builder()
                     .with_no_client_auth()
                     .with_single_cert(certs, key)
@@ -204,14 +274,7 @@ impl TransportRuntime {
                     Endpoint::new(EndpointConfig::default(), Some(server_config), socket, qrt)
                         .map_err(|e| e.to_string())?;
                 // Same endpoint can dial peers (WAN push / pull) while listening for incoming.
-                let mut client_crypto = rustls::ClientConfig::builder()
-                    .dangerous()
-                    .with_custom_certificate_verifier(SkipServerVerification::new())
-                    .with_no_client_auth();
-                client_crypto.alpn_protocols = vec![b"ngmt".to_vec()];
-                let mut cc = ClientConfig::new(Arc::new(
-                    QuicClientConfig::try_from(client_crypto).map_err(|e| e.to_string())?,
-                ));
+                let mut cc = build_quic_client_config(Arc::clone(&transport))?;
                 cc.transport_config(transport);
                 ep.set_default_client_config(cc);
                 ep

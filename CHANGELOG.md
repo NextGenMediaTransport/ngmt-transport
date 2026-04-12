@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **TLS / PKI (v1.0 Security Baseline prep):** Optional operator PEM paths — **`NGMT_TLS_TRUST_ANCHOR_PEM`** for QUIC clients (standard verification against pinned anchors); **`NGMT_TLS_SERVER_CERT_PEM`** + **`NGMT_TLS_SERVER_KEY_PEM`** for listener identity instead of **rcgen**. Default remains **lab** (no client verify + ephemeral server cert). Depends on **`rustls-pemfile`**. Documented in [README.md](README.md).
 - **C ABI (LAN discovery):** **`NgmtDiscoveredService`**, **`ngmt_transport_discover_refresh`**, **`ngmt_transport_discover_count`**, **`ngmt_transport_discover_get`**, **`ngmt_transport_discover_lookup`** — DNS-SD browse for **`_ngmt._udp.local.`** via **`mdns-sd`** (OBS input and other C hosts; independent of QUIC init). Internal module `discover` mirrors Studio **`ngmt-common`** event mapping without a crate cycle.
 - **C ABI (peer):** **`ngmt_transport_peer_close`**, **`ngmt_transport_peer_dial`**, **`ngmt_transport_peer_recv_datagram_timeout`** — single outbound QUIC connection for C hosts (e.g. OBS); **`TransportRuntime::recv_datagram_timeout`** for blocking recv on the transport runtime thread.
 - **Branding:** vendored **`branding/svg/marks/ngmt-transport.svg`** + README header.

@@ -8,6 +8,15 @@ First-party **QUIC / WAN** transport layer for **NextGenMediaTransport (NGMT)**.
 
 - **[Quinn](https://github.com/quinn-rs/quinn)** with **`runtime-tokio`** and **`rustls`**; **ALPN** `ngmt` on client and server; **BBR** congestion control via `quinn::congestion::BbrConfig`.
 - **WAN scope:** direct QUIC with lab certificates — **not** STUN/TURN/ICE yet; see the meta-repo Phase 3 plan for assumptions.
+
+### TLS modes (lab vs operator PEM)
+
+| Mode | Client behavior | Server (listener) identity |
+|------|-----------------|------------------------------|
+| **Default (lab)** | No certificate verification (`SkipServerVerification`) — **MITM risk**; fine for localhost and closed LAN demos. | Ephemeral **rcgen** self-signed cert (`localhost`, `ngmt.local`). |
+| **Operator trust anchor** | Set **`NGMT_TLS_TRUST_ANCHOR_PEM`** to a file path containing one or more **PEM** certificates (server leaf, private CA, or chain). rustls performs **standard** path validation against that trust store only (pinning / “good enough” v1.0 policy). | Optional **`NGMT_TLS_SERVER_CERT_PEM`** + **`NGMT_TLS_SERVER_KEY_PEM`** (both required if either is set). If unset, listener still uses **rcgen** — then clients **must** either stay in lab mode or trust that ephemeral cert via a captured PEM (not typical). For production-style tests, point **both** server PEM paths and **client** `NGMT_TLS_TRUST_ANCHOR_PEM` at the **same** issued cert chain. |
+
+Environment variables are read when [`TransportRuntime`](src/engine/session.rs) is constructed (each process / plugin load).
 - **[Tokio](https://tokio.rs/)** for async I/O.
 - **[tracing](https://docs.rs/tracing)** + **[tracing-subscriber](https://docs.rs/tracing-subscriber)** for structured diagnostics (subscriber installation is application-owned).
 - **[rcgen](https://crates.io/crates/rcgen)** for ephemeral lab certificates.
