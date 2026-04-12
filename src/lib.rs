@@ -8,6 +8,7 @@
 pub mod app_api;
 pub mod engine;
 pub mod ffi;
+mod log_forward;
 
 pub use app_api::{
     connection_error_trace_hint, max_ngmt_media_fragment_body, recv_datagram_async, send_datagram,
@@ -19,6 +20,7 @@ pub use ffi::{
     ngmt_transport_init, ngmt_transport_shutdown, NgmtByteSlice, NgmtObjectHeader,
     NgmtTransportConfig, WlanOptimization,
 };
+pub use log_forward::{ngmt_transport_set_log_fn, ngmt_transport_try_init_tracing_forwarder};
 
 #[cfg(test)]
 mod tests {

@@ -102,6 +102,20 @@ bool ngmt_transport_init(const struct NgmtTransportConfig *config);
 
 void ngmt_transport_shutdown(void);
 
+/**
+ * Host sets this before `ngmt_transport_try_init_tracing_forwarder` so early events forward correctly.
+ *
+ * Pass `NULL` / `None` to clear the hook (e.g. on module unload).
+ */
+void ngmt_transport_set_log_fn(void (*cb)(int32_t, const char*));
+
+/**
+ * Install a minimal global `tracing` subscriber that forwards events to the C callback set by
+ * [`ngmt_transport_set_log_fn`]. Returns `true` if this call installed the subscriber, `false` if a
+ * global subscriber was already present (common when embedded with `ngmt-studio`).
+ */
+bool ngmt_transport_try_init_tracing_forwarder(void);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif // __cplusplus
