@@ -20,7 +20,7 @@ The build script runs **[cbindgen](https://github.com/mozilla/cbindgen)** (see `
 
 Regenerate by running `cargo build` from this repository root. **Commit** this header so CMake projects can add `target_include_directories(... include)` without running Cargo first, or document your policy if you prefer generating only in CI.
 
-Exported symbols include **`NgmtObjectHeader`**, **`WlanOptimization`**, **`ngmt_transport_init`** / **`ngmt_transport_shutdown`**, and LE helpers **`ngmt_object_header_write_le`** / **`ngmt_object_header_read_le`**. Link against the **`cdylib`** artifact when integrating with C++.
+Exported symbols include **`NgmtObjectHeader`**, **`WlanOptimization`**, **`NgmtDiscoveredService`**, **`ngmt_transport_init`** / **`ngmt_transport_shutdown`**, **`ngmt_transport_peer_close`** / **`ngmt_transport_peer_dial`** / **`ngmt_transport_peer_recv_datagram_timeout`** (single global peer for hosts like OBS), **`ngmt_transport_discover_refresh`** / **`ngmt_transport_discover_count`** / **`ngmt_transport_discover_get`** / **`ngmt_transport_discover_lookup`** (DNS-SD **`_ngmt._udp`**, aligned with Studio **`ngmt-common::discovery`** behavior), and LE helpers **`ngmt_object_header_write_le`** / **`ngmt_object_header_read_le`**. Link against the **`cdylib`** artifact when integrating with C++.
 
 ## Rust API for tools (`ngmt-studio`)
 

@@ -6,6 +6,7 @@
 //! control (future). Congestion control defaults to **BBR** via `quinn-proto` when available.
 
 pub mod app_api;
+mod discover;
 pub mod engine;
 pub mod ffi;
 mod log_forward;
@@ -17,8 +18,9 @@ pub use app_api::{
 pub use engine::session::TransportRuntime;
 pub use ffi::{
     ngmt_object_header_read_le, ngmt_object_header_write_le, ngmt_transport_abi_version,
-    ngmt_transport_init, ngmt_transport_shutdown, NgmtByteSlice, NgmtObjectHeader,
-    NgmtTransportConfig, WlanOptimization,
+    ngmt_transport_init, ngmt_transport_peer_close, ngmt_transport_peer_dial,
+    ngmt_transport_peer_recv_datagram_timeout, ngmt_transport_shutdown, NgmtByteSlice,
+    NgmtObjectHeader, NgmtTransportConfig, WlanOptimization,
 };
 pub use log_forward::{ngmt_transport_set_log_fn, ngmt_transport_try_init_tracing_forwarder};
 

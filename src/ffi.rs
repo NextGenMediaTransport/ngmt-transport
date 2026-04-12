@@ -6,12 +6,18 @@
 //! on the wire; Rust `#[repr(C)]` layout matches ARM64 and x86_64 when consumers use the provided
 //! serialize helpers (do not rely on implicit padding across language boundaries for extensions).
 
+use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::{Mutex, Once, OnceLock};
+use std::time::Duration;
 
+use quinn::Connection;
+
+use crate::discover;
 use crate::engine::session::TransportRuntime;
 
 static RUNTIME: OnceLock<Mutex<Option<TransportRuntime>>> = OnceLock::new();
+static PEER_CONN: Mutex<Option<Connection>> = Mutex::new(None);
 static CRYPTO: Once = Once::new();
 
 fn ensure_rustls_ring_provider() {
@@ -93,6 +99,30 @@ impl Default for NgmtTransportConfig {
             _pad1: 0,
             wlan: WlanOptimization::default(),
         }
+    }
+}
+
+/// One resolved **`_ngmt._udp`** LAN service (UTF-8, NUL-terminated fields; excess truncated).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct NgmtDiscoveredService {
+    /// Target host for QUIC dial (often `*.local.`).
+    pub host: [c_char; 256],
+    pub port: u16,
+    pub _pad: u16,
+    /// DNS-SD full name, lowercased (stable `discovery_pick` key).
+    pub fullname: [c_char; 256],
+    /// Instance label (first label of the full name).
+    pub label: [c_char; 128],
+    /// Optional TXT **`role`** (`generator`, …); empty if absent.
+    pub role: [c_char; 64],
+}
+
+fn write_c_field(dst: &mut [c_char], s: &str) {
+    dst.fill(0);
+    let max = dst.len().saturating_sub(1);
+    for (i, b) in s.as_bytes().iter().take(max).enumerate() {
+        dst[i] = *b as c_char;
     }
 }
 
@@ -183,9 +213,208 @@ pub extern "C" fn ngmt_transport_init(config: *const NgmtTransportConfig) -> boo
     }
 }
 
+/// Close the active peer QUIC connection (if any). Safe to call before/after [`ngmt_transport_shutdown`].
+#[no_mangle]
+pub extern "C" fn ngmt_transport_peer_close() {
+    if let Ok(mut g) = PEER_CONN.lock() {
+        if let Some(c) = g.take() {
+            c.close(quinn::VarInt::from_u32(0), &[]);
+        }
+    }
+}
+
+/// Outbound QUIC dial using the global [`TransportRuntime`] (call [`ngmt_transport_init`] first).
+/// Replaces any previous peer connection. `server_name` is TLS SNI (pass NULL for `"localhost"`).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn ngmt_transport_peer_dial(
+    host: *const c_char,
+    port: u16,
+    server_name: *const c_char,
+) -> bool {
+    if host.is_null() {
+        return false;
+    }
+    ngmt_transport_peer_close();
+
+    let host_s = match unsafe { CStr::from_ptr(host).to_str() } {
+        Ok(s) if !s.is_empty() => s.to_string(),
+        _ => return false,
+    };
+    let sn = if server_name.is_null() {
+        "localhost".to_string()
+    } else {
+        match unsafe { CStr::from_ptr(server_name).to_str() } {
+            Ok(s) if !s.is_empty() => s.to_string(),
+            _ => "localhost".to_string(),
+        }
+    };
+
+    let conn = {
+        let g = match runtime_cell().lock() {
+            Ok(x) => x,
+            Err(_) => return false,
+        };
+        let rt = match g.as_ref() {
+            Some(t) => t,
+            None => return false,
+        };
+        match rt.dial(&host_s, port, &sn) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(target: "ngmt_transport_ffi", "peer dial failed: {}", e);
+                return false;
+            }
+        }
+    };
+
+    match PEER_CONN.lock() {
+        Ok(mut g) => {
+            *g = Some(conn);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Receive one datagram into `buf` (cap bytes). Writes length to `out_len` on success.
+/// Blocks up to `timeout_ms` (clamped to >= 1 ms). Returns false on timeout, no connection, or error.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn ngmt_transport_peer_recv_datagram_timeout(
+    buf: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+    timeout_ms: u32,
+) -> bool {
+    if buf.is_null() || out_len.is_null() || cap == 0 {
+        return false;
+    }
+    let wait = Duration::from_millis(timeout_ms.max(1) as u64);
+    let g = match runtime_cell().lock() {
+        Ok(x) => x,
+        Err(_) => return false,
+    };
+    let rt = match g.as_ref() {
+        Some(t) => t,
+        None => return false,
+    };
+    let conn = {
+        let pc = match PEER_CONN.lock() {
+            Ok(x) => x,
+            Err(_) => return false,
+        };
+        match pc.as_ref() {
+            Some(c) => c.clone(),
+            None => return false,
+        }
+    };
+    match rt.recv_datagram_timeout(&conn, wait) {
+        Ok(bytes) => {
+            let len = bytes.len();
+            if len > cap {
+                tracing::warn!(
+                    target: "ngmt_transport_ffi",
+                    "peer recv datagram {} bytes > cap {} — drop (increase receive buffer)",
+                    len,
+                    cap
+                );
+                return false;
+            }
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf, len);
+                *out_len = len;
+            }
+            true
+        }
+        Err(e) => {
+            tracing::debug!(target: "ngmt_transport_ffi", "peer recv: {}", e);
+            false
+        }
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn ngmt_transport_shutdown() {
+    ngmt_transport_peer_close();
     if let Ok(mut g) = runtime_cell().lock() {
         *g = None;
     }
+}
+
+/// DNS-SD browse for **`_ngmt._udp`**: collect / update the internal list by draining mDNS events for
+/// roughly **`wait_ms`** (clamped 1…5000). Does **not** require [`ngmt_transport_init`]. Returns
+/// `false` if the mDNS daemon failed or the browse channel died.
+#[no_mangle]
+pub extern "C" fn ngmt_transport_discover_refresh(wait_ms: u32) -> bool {
+    let ms = (wait_ms.max(1)).min(5000);
+    match discover::refresh(Duration::from_millis(ms as u64)) {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!(target: "ngmt_transport_ffi", "discover_refresh: {}", e);
+            false
+        }
+    }
+}
+
+/// Number of resolved services after the last successful [`ngmt_transport_discover_refresh`] (or 0).
+#[no_mangle]
+pub extern "C" fn ngmt_transport_discover_count() -> u32 {
+    discover::sorted_snapshot().len() as u32
+}
+
+/// Copy service **`index`** (0 … count-1, stable sort by `fullname`) into **`out`**.
+///
+/// # Safety
+/// `out` must be valid for writes when non-null.
+#[no_mangle]
+pub unsafe extern "C" fn ngmt_transport_discover_get(
+    index: u32,
+    out: *mut NgmtDiscoveredService,
+) -> bool {
+    if out.is_null() {
+        return false;
+    }
+    let list = discover::sorted_snapshot();
+    let Some(entry) = list.get(index as usize) else {
+        return false;
+    };
+    let o = &mut *out;
+    write_c_field(&mut o.host, &entry.host);
+    o.port = entry.port;
+    o._pad = 0;
+    write_c_field(&mut o.fullname, &entry.fullname);
+    write_c_field(&mut o.label, &entry.instance_name);
+    write_c_field(&mut o.role, &entry.role);
+    true
+}
+
+/// Look up a service by **`fullname`** (case-insensitive) in the last refreshed cache without waiting
+/// on the network. Refresh first if the service may have appeared recently.
+///
+/// # Safety
+/// `fullname` must be a valid NUL-terminated UTF-8 string when non-null. `out` must be valid for writes.
+#[no_mangle]
+pub unsafe extern "C" fn ngmt_transport_discover_lookup(
+    fullname: *const c_char,
+    out: *mut NgmtDiscoveredService,
+) -> bool {
+    if fullname.is_null() || out.is_null() {
+        return false;
+    }
+    let key = match CStr::from_ptr(fullname).to_str() {
+        Ok(s) if !s.is_empty() => s,
+        _ => return false,
+    };
+    let Some(entry) = discover::lookup_fullname(key) else {
+        return false;
+    };
+    let o = &mut *out;
+    write_c_field(&mut o.host, &entry.host);
+    o.port = entry.port;
+    o._pad = 0;
+    write_c_field(&mut o.fullname, &entry.fullname);
+    write_c_field(&mut o.label, &entry.instance_name);
+    write_c_field(&mut o.role, &entry.role);
+    true
 }

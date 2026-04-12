@@ -94,10 +94,6 @@ impl<S: Subscriber> Layer<S> for ForwardLayer {
 /// global subscriber was already present (common when embedded with `ngmt-studio`).
 #[no_mangle]
 pub extern "C" fn ngmt_transport_try_init_tracing_forwarder() -> bool {
-    *FORWARDER_INIT.get_or_init(|| {
-        tracing_subscriber::registry()
-            .with(ForwardLayer)
-            .try_init()
-            .is_ok()
-    })
+    *FORWARDER_INIT
+        .get_or_init(|| tracing_subscriber::registry().with(ForwardLayer).try_init().is_ok())
 }

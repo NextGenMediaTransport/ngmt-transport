@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **C ABI (LAN discovery):** **`NgmtDiscoveredService`**, **`ngmt_transport_discover_refresh`**, **`ngmt_transport_discover_count`**, **`ngmt_transport_discover_get`**, **`ngmt_transport_discover_lookup`** — DNS-SD browse for **`_ngmt._udp.local.`** via **`mdns-sd`** (OBS input and other C hosts; independent of QUIC init). Internal module `discover` mirrors Studio **`ngmt-common`** event mapping without a crate cycle.
+- **C ABI (peer):** **`ngmt_transport_peer_close`**, **`ngmt_transport_peer_dial`**, **`ngmt_transport_peer_recv_datagram_timeout`** — single outbound QUIC connection for C hosts (e.g. OBS); **`TransportRuntime::recv_datagram_timeout`** for blocking recv on the transport runtime thread.
 - **Branding:** vendored **`branding/svg/marks/ngmt-transport.svg`** + README header.
 - **C ABI / OBS integration:** **`ngmt_transport_set_log_fn`** and **`ngmt_transport_try_init_tracing_forwarder`** (`log_forward` module) — optional **`tracing` → C callback** bridge when no global subscriber exists (hosts such as **OBS** can forward into **`blog()`**). Documented in generated **`include/ngmt_transport.h`**.
 - **`app_api::connection_error_trace_hint`:** Maps common [`ConnectionError`](https://docs.rs/quinn/latest/quinn/enum.ConnectionError.html) cases to a short static tag for Studio trace lines (full `Debug` still logged).
@@ -18,6 +20,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **C ABI recv:** **`ngmt_transport_peer_recv_datagram_timeout`** no longer truncates datagrams larger than **`cap`** while still reporting success (would corrupt NGMT headers). Oversized datagrams are dropped with a **`tracing::warn`** so callers can raise **`NGMT_DATAGRAM_CAP`**.
 - **Studio VMX path:** Oversized application datagrams vs initial QUIC MTU (not the negotiated 64 KiB frame limit) caused immediate **`SendDatagramError::TooLarge`** after handshake; generators now cap fragment size using **`Connection::max_datagram_size()`**.
 - **QUIC client ALPN:** client `rustls` configs now set **`alpn_protocols = ["ngmt"]`** to match the server, fixing failed handshakes when dialing (integration test `tests/loopback_connect.rs`, Studio outgoing mode).
 

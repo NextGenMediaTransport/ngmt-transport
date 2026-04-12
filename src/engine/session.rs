@@ -9,6 +9,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use bytes::Bytes;
 use quinn::congestion::BbrConfig;
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn::{
@@ -384,5 +385,21 @@ impl TransportRuntime {
     /// Placeholder for post-connect bandwidth probe (call once `Connection` exists).
     pub fn warm_up_burst_ms(_duration: Duration) {
         // Future: send padding datagrams or a short unidirectional stream burst.
+    }
+
+    /// Blocking receive of one unreliable datagram (for C/FFI worker threads). Uses the same
+    /// `Runtime::block_on` rule as [`Self::dial`]: do not nest `block_on` on this runtime.
+    pub fn recv_datagram_timeout(
+        &self,
+        conn: &quinn::Connection,
+        wait: Duration,
+    ) -> Result<Bytes, String> {
+        let c = conn.clone();
+        self.runtime.block_on(async move {
+            timeout(wait, c.read_datagram())
+                .await
+                .map_err(|_| "recv_timeout".to_string())?
+                .map_err(|e| e.to_string())
+        })
     }
 }
