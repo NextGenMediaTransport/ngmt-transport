@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs:** [README.md](README.md) C header section lists **`ngmt_transport_abi_version`**, **`ngmt_transport_set_log_fn`**, and **`ngmt_transport_try_init_tracing_forwarder`**, and points integrators at committed **`include/ngmt_transport.h`**.
+
 ### Added
 
 - **TLS / PKI (v1.0 Security Baseline prep):** Optional operator PEM paths — **`NGMT_TLS_TRUST_ANCHOR_PEM`** for QUIC clients (standard verification against pinned anchors); **`NGMT_TLS_SERVER_CERT_PEM`** + **`NGMT_TLS_SERVER_KEY_PEM`** for listener identity instead of **rcgen**. Default remains **lab** (no client verify + ephemeral server cert). Depends on **`rustls-pemfile`**. Documented in [README.md](README.md).
