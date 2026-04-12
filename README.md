@@ -1,5 +1,7 @@
 # ngmt-transport
 
+<p align="center"><img src="branding/svg/marks/ngmt-transport.svg" width="96" height="96" alt="NGMT Transport mark"/></p>
+
 First-party **QUIC / WAN** transport layer for **NextGenMediaTransport (NGMT)**. This repository is **greenfield**: there is no legacy Open Media Transport code here. The crate will own QUIC session logic, congestion-aware media streaming over lossy links, and eventually **FFI** to the C++ **ngmt-core** library.
 
 ## Stack (Phase 3)
