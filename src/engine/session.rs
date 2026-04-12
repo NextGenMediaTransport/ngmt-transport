@@ -302,7 +302,10 @@ impl TransportRuntime {
                     ));
                 }
                 Err(_) => {
-                    last_err = format!("handshake timed out after {} ms", CONNECT_HANDSHAKE_TIMEOUT.as_millis());
+                    last_err = format!(
+                        "handshake timed out after {} ms",
+                        CONNECT_HANDSHAKE_TIMEOUT.as_millis()
+                    );
                     quic_eprintln(format!(
                         "[{}ms] [ngmt-transport] connect_to handshake TIMEOUT for {addr} ({})",
                         quic_wall_ms(),
