@@ -36,16 +36,9 @@ fn map_level(level: &tracing::Level) -> i32 {
     }
 }
 
+#[derive(Default)]
 struct FieldBuf {
     out: String,
-}
-
-impl Default for FieldBuf {
-    fn default() -> Self {
-        Self {
-            out: String::new(),
-        }
-    }
 }
 
 impl Visit for FieldBuf {
